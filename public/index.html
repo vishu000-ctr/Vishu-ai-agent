@@ -16,8 +16,27 @@
     align-items: center;
     min-height: 100vh;
   }
-  header { padding: 20px; text-align: center; }
-  header h1 { margin: 0; color: #ff6b35; }
+  header {
+    padding: 16px 20px;
+    text-align: center;
+    width: 100%;
+    max-width: 600px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header .title h1 { margin: 0; color: #ff6b35; font-size: 24px; }
+  header .title p { margin: 2px 0 0; font-size: 13px; color: #aaa; }
+  #clear-btn {
+    background: none;
+    border: 1px solid #444;
+    color: #ccc;
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  #clear-btn:hover { background: #2d2d44; }
   #chat-container {
     width: 100%;
     max-width: 600px;
@@ -104,8 +123,11 @@
 </head>
 <body>
   <header>
-    <h1>⚡ Vishu</h1>
-    <p>Aapka apna AI agent</p>
+    <div class="title">
+      <h1>⚡ Vishu</h1>
+      <p>Aapka apna AI agent</p>
+    </div>
+    <button id="clear-btn">New chat</button>
   </header>
   <div id="chat-container">
     <div id="messages"></div>
@@ -121,9 +143,25 @@
   const inputBox = document.getElementById("input-box");
   const sendBtn = document.getElementById("send-btn");
   const micBtn = document.getElementById("mic-btn");
-  const sessionId = "session-" + Math.random().toString(36).slice(2);
+  const clearBtn = document.getElementById("clear-btn");
 
-  function addMessage(text, sender) {
+  const STORAGE_KEY = "vishu_chat_history";
+
+  let chatHistory = [];
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) chatHistory = JSON.parse(saved);
+  } catch (e) {
+    chatHistory = [];
+  }
+
+  function saveHistory() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(chatHistory));
+    } catch (e) {}
+  }
+
+  function renderMessage(text, sender) {
     const div = document.createElement("div");
     div.className = "msg " + sender;
     div.textContent = text;
@@ -132,26 +170,40 @@
     return div;
   }
 
+  function loadHistoryToScreen() {
+    messagesEl.innerHTML = "";
+    chatHistory.forEach((m) => {
+      renderMessage(m.content, m.role === "user" ? "user" : "bot");
+    });
+  }
+  loadHistoryToScreen();
+
   async function sendMessage() {
     const text = inputBox.value.trim();
     if (!text) return;
-    addMessage(text, "user");
+
+    renderMessage(text, "user");
+    chatHistory.push({ role: "user", content: text });
+    saveHistory();
     inputBox.value = "";
 
-    const typingEl = addMessage("Vishu likh raha hai...", "typing");
+    const typingEl = renderMessage("Vishu likh raha hai...", "typing");
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, sessionId }),
+        body: JSON.stringify({ history: chatHistory }),
       });
       const data = await res.json();
       typingEl.remove();
-      addMessage(data.reply || "Kuch error aa gaya.", "bot");
+      const reply = data.reply || "Kuch error aa gaya.";
+      renderMessage(reply, "bot");
+      chatHistory.push({ role: "assistant", content: reply });
+      saveHistory();
     } catch (e) {
       typingEl.remove();
-      addMessage("Server se connect nahi ho paya.", "bot");
+      renderMessage("Server se connect nahi ho paya.", "bot");
     }
   }
 
@@ -160,14 +212,21 @@
     if (e.key === "Enter") sendMessage();
   });
 
-  // ---- Voice message (browser ka built-in Speech Recognition) ----
+  clearBtn.addEventListener("click", () => {
+    if (confirm("Are you sure you want to delete the chat history?")) {
+      chatHistory = [];
+      saveHistory();
+      messagesEl.innerHTML = "";
+    }
+  });
+
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   let recognition = null;
   let isRecording = false;
 
   if (SpeechRecognition) {
     recognition = new SpeechRecognition();
-    recognition.lang = "hi-IN"; // Hindi; English chahiye to "en-IN" kar dena
+    recognition.lang = "hi-IN";
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
 
